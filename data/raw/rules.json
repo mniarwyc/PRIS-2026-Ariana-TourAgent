@@ -1,12 +1,12 @@
 {
   "scenario_name": "Идеальный отель",
   "thresholds": {
-    "min_value": 3,
-    "max_value": 5
+    "min_value": 10,
+    "max_value": 100
   },
   "lists": {
-    "whitelist": ["wifi", "pool", "spa"],
-    "blacklist": ["noisy", "dirty"]
+    "whitelist": ["wifi", "pool"],
+    "blacklist": ["bad_tag_1", "bad_tag_2"]
   },
   "critical_rules": {
     "must_be_verified": true
