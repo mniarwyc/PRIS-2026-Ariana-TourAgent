@@ -1,26 +1,32 @@
 import streamlit as st
-from mock_data import test_entity as default_data
-from logic import check_rules
+import networkx as nx
+import matplotlib.pyplot as plt
+from knowledge_graph import create_graph, find_related_entities
 
-st.title("Rule-Based System Debugger 🛠")
-st.write("### Настройка входящих данных")
+st.title("Tour Knowledge Graph 🌍")
 
-user_number = st.sidebar.number_input("Введите рейтинг отеля:", value=default_data["metric_value"])
-user_bool = st.sidebar.checkbox("Отель проверен", value=default_data["is_verified"])
+G = create_graph()
 
-if st.button("Запустить проверку"):
-    current_test_data = {
-        "metric_value": user_number,
-        "is_verified": user_bool,
-        "category_text": default_data["category_text"],
-        "tags_list": default_data["tags_list"]
-    }
-    
-    result = check_rules(current_test_data)
-    
-    if "✅" in result:
-        st.success(result)
-    elif "⛔️" in result:
-        st.error(result)
-    else:
-        st.warning(result)
+all_nodes = list(G.nodes())
+selected_node = st.selectbox("Выберите объект:", all_nodes)
+
+if st.button("Показать связи"):
+    results = find_related_entities(G, selected_node)
+    st.success(f"{selected_node} связан с: {', '.join(results)}")
+
+st.write("### Визуализация графа")
+
+fig, ax = plt.subplots(figsize=(8, 6))
+pos = nx.spring_layout(G)
+
+nx.draw(
+    G, pos,
+    with_labels=True,
+    node_color='lightblue',
+    edge_color='gray',
+    node_size=2500,
+    font_size=10,
+    ax=ax
+)
+
+st.pyplot(fig)
