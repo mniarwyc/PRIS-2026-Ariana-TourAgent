@@ -1,6 +1,6 @@
 import networkx as nx
 
-def create_graph():
+def load_graph():   
     G = nx.Graph()
 
     # --- Узлы ---
@@ -34,7 +34,17 @@ def create_graph():
     return G
 
 
-def find_related_entities(graph, start_node):
-    if start_node not in graph:
+def find_related_entities(graph, user_input):
+    if not user_input:
         return []
-    return list(graph.neighbors(start_node))
+
+    user_input = user_input.strip().lower()
+
+    # создаём словарь: нижний регистр -> реальное имя узла
+    nodes_lower = {node.lower(): node for node in graph.nodes}
+
+    if user_input in nodes_lower:
+        real_node = nodes_lower[user_input]
+        return list(graph.neighbors(real_node))
+
+    return []
