@@ -1,65 +1,52 @@
 import json
+import os
+from models import TourEntity
 
-def check_rules(data):
-    """
-    Проверяет словарь данных по правилам (Lab2)
-    """
-    # Для примера можно оставить простой проверочный блок
-    min_val = 10
-    max_val = 100
-    metric = data.get("metric_value", 0)
+def load_rules():
+    path = os.path.join("data", "rules.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return None
 
-    if metric < min_val:
-        return f"❌ Отказ: Значение {metric} ниже минимального {min_val}"
-    if metric > max_val:
-        return f"❌ Отказ: Значение {metric} выше максимального {max_val}"
+def check_rules(entity: TourEntity):
+    rules = load_rules()
+    if not rules: return ["⚠️ Правила не найдены"]
+    
+    reports = []
+    max_price = rules["thresholds"]["max_value"]
+    needed_tags = rules["lists"]["whitelist"]
 
-    if not data.get("is_verified", True):
-        return "⛔️ Критическая ошибка: Объект не прошел проверку"
+    # Проверка цены
+    if entity.price > max_price:
+        reports.append(f"❌ Дорого: {entity.price}$ (лимит {max_price}$)")
+    else:
+        reports.append(f"✅ Цена в пределах нормы")
 
-    tags = data.get("tags_list", [])
-    if "forbidden" in tags:
-        return f"⚠️ Предупреждение: Найден запрещенный тег ({', '.join(tags)})"
-
-    return "✅ Объект соответствует правилам"
+    # Проверка тегов
+    found_tags = [t.lower() for t in entity.attributes]
+    for tag in needed_tags:
+        if tag.lower() not in found_tags:
+            reports.append(f"⚠️ Нет услуги: {tag}")
+    
+    return reports
 
 def process_text_message(text, graph):
-    """
-    Принимает текст пользователя и ищет узел в графе.
-    Если узел найден — выводим его характеристики.
-    Если нет — стандартный ответ.
-    """
     text = text.strip()
-
-    if not graph:
-        return "Граф пока не загружен."
-
-    # --- Проверяем узел в графе ---
     if text in graph.nodes:
         node_data = graph.nodes[text].get("data")
-        response = f"✅ Я нашел '{text}' в базе!\n"
-        neighbors = list(graph.neighbors(text))
-        if node_data:
-            # Добавляем атрибуты
-            if hasattr(node_data, "attributes") and node_data.attributes:
-                response += f"- Атрибуты: {', '.join(node_data.attributes)}\n"
-            # Добавляем цену
-            if hasattr(node_data, "price") and node_data.price > 0:
-                response += f"- Цена: {node_data.price}$\n"
-        if neighbors:
-            # Выводим соседей
-            response += f"- Связано с: {', '.join(neighbors)}"
-        else:
-            response += "- Связей нет"
-        return response
-
-    # --- Проверка ключевых слов ---
-    lowered = text.lower()
-    if "правило" in lowered or "проверить объект" in lowered:
-        sample_data = {"metric_value": 50, "is_verified": True, "tags_list": ["tour", "hotel"]}
-        return check_rules(sample_data)
-
-    if "привет" in lowered or "здравствуй" in lowered:
-        return "Привет! Я готов помочь. Напиши название объекта."
-
-    return "Я не знаю такого термина. Попробуй ввести узел графа или ключевое слово."
+        
+        if isinstance(node_data, TourEntity):
+            res = f"### 📍 {text}\n"
+            if node_data.price > 0: res += f"**Цена:** {node_data.price}$\n"
+            res += f"**Теги:** {', '.join(node_data.attributes)}\n\n"
+            
+            # Экспертиза
+            res += "🤖 **Анализ:**\n"
+            for v in check_rules(node_data):
+                res += f"- {v}\n"
+            return res
+        return f"Узел '{text}' найден (информационный)."
+    
+    return "Я не нашел такой город или страну. Попробуй: Анталия, Рим или Дубай."

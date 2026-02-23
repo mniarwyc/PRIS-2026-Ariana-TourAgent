@@ -5,67 +5,41 @@ import matplotlib.pyplot as plt
 import networkx as nx
 
 st.set_page_config(layout="wide")
-st.title("Tour Knowledge Graph & Chat 🌍🤖")
+st.title("TourAgent AI 🌍")
 
-# --- Инициализация истории чата ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# --- Инициализация графа (кэшируем) ---
+# Кэшируем граф
 if "graph" not in st.session_state:
     st.session_state.graph = create_graph()
 
-G = st.session_state.graph
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# --- Разделяем экран на колонки: чат | граф ---
+G = st.session_state.graph
 chat_col, graph_col = st.columns([2, 3])
 
 with chat_col:
-    st.subheader("💬 Чат")
+    st.subheader("💬 Чат с агентом")
+    
+    # ВАЖНО: chat_input ВСЕГДА снаружи условий
+    user_input = st.chat_input("Напишите название (например, Дубай)...")
 
-    # --- Поле ввода всегда видно ---
-    user_input = st.chat_input("Введите ваш запрос...")
+    # Отображаем историю
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
     if user_input:
-        # Добавляем сообщение пользователя
         st.session_state.messages.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
 
-    # Отображаем историю сообщений
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    # Если есть новое сообщение от пользователя
-    if user_input:
-        bot_response = process_text_message(user_input, G)
-        st.session_state.messages.append({"role": "assistant", "content": bot_response})
+        response = process_text_message(user_input, G)
+        st.session_state.messages.append({"role": "assistant", "content": response})
         with st.chat_message("assistant"):
-            st.markdown(bot_response)
+            st.markdown(response)
 
 with graph_col:
-    st.subheader("📊 Визуализация графа")
-
-    def draw_graph(G):
-        fig, ax = plt.subplots(figsize=(8, 6))
-        pos = nx.spring_layout(G, seed=42)  # фиксируем layout для стабильности
-        node_colors = []
-        for n in G.nodes:
-            node_data = G.nodes[n].get("data")
-            if node_data and node_data.price > 0:
-                node_colors.append("lightgreen")  # города с ценой
-            else:
-                node_colors.append("lightblue")
-        nx.draw(
-            G, pos,
-            with_labels=True,
-            labels={n: n for n in G.nodes()},
-            node_color=node_colors,
-            edge_color='gray',
-            node_size=2500,
-            font_size=10,
-            ax=ax
-        )
-        return fig
-
-    fig = draw_graph(G)
+    st.subheader("📊 Граф знаний")
+    fig, ax = plt.subplots()
+    nx.draw(G, with_labels=True, node_color='lightblue', ax=ax)
     st.pyplot(fig)
