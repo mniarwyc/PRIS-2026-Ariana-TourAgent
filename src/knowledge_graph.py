@@ -1,51 +1,57 @@
 import networkx as nx
+import pandas as pd
+import os
 from models import TourEntity 
 
 def create_graph():
     """
-    Создает граф знаний о турах.
-    Узлы содержат объекты TourEntity с расширенными данными.
+    Создает интеллектуальный граф знаний на основе CSV-датасета.
+    Использует Pandas для обработки данных и NetworkX для построения связей.
     """
     G = nx.Graph()
-
-    # --- 1. Создание базы данных объектов (Entity Layer) ---
-    # Мы создаем объекты с рейтингами и описаниями для имитации реальной системы
-    data = [
-        # Страны и категории (информационные узлы)
-        TourEntity("Турция", ["Без визы"], description="Популярное направление с отличным сервисом All Inclusive"),
-        TourEntity("Италия", ["Нужна виза"], description="Центр мировой культуры, истории и гастрономии"),
-        TourEntity("ОАЭ", ["Без визы"], description="Ультрасовременная архитектура и роскошный отдых"),
-        
-        # Конкретные направления (объекты для поиска и ранжирования)
-        TourEntity("Анталия", ["Пляж", "wifi", "All Inclusive"], price=550.0, rating=4.5, description="Семейный отдых на побережье"),
-        TourEntity("Бодрум", ["Пляж", "Элита", "wifi"], price=1200.0, rating=4.8, description="Премиальный отдых в стиле Эгейского моря"),
-        TourEntity("Рим", ["Экскурсии", "История", "wifi"], price=750.0, rating=4.9, description="Вечный город с тысячелетней историей"),
-        TourEntity("Милан", ["Шопинг", "Мода"], price=900.0, rating=4.6, description="Мировая столица моды и дизайна"),
-        TourEntity("Дубай", ["Шопинг", "pool", "wifi", "Пляж"], price=850.0, rating=4.8, description="Город будущего с лучшими торговыми центрами"),
-        TourEntity("Абу-Даби", ["Культура", "Пляж", "pool"], price=950.0, rating=4.7, description="Спокойный отдых и культурные достопримечательности"),
-    ]
-
-    # --- 2. Наполнение графа узлами ---
-    for ent in data:
-        # Важно: сохраняем весь объект TourEntity в атрибут 'data'
-        G.add_node(ent.name, data=ent)
-
-    # --- 3. Построение семантических связей (Relation Layer) ---
-    # Связываем города с их странами и визовыми требованиями
-    connections = [
-        ("Анталия", "Турция"), 
-        ("Бодрум", "Турция"),
-        ("Рим", "Италия"), 
-        ("Милан", "Италия"),
-        ("Дубай", "ОАЭ"), 
-        ("Абу-Даби", "ОАЭ"),
-        
-        # Общие категории
-        ("Турция", "Без визы"), 
-        ("ОАЭ", "Без визы"), 
-        ("Италия", "Нужна виза")
-    ]
     
-    G.add_edges_from(connections)
+    # Путь к нашему расширенному датасету (40+ записей)
+    csv_path = os.path.join("data", "tours.csv")
+    
+    if os.path.exists(csv_path):
+        # 1. Читаем датасет через PANDAS
+        df = pd.read_csv(csv_path)
+        
+        for _, row in df.iterrows():
+            # 2. Создаем объект TourEntity из строки таблицы (ООП подход)
+            ent = TourEntity(
+                name=str(row['name']),
+                # Превращаем строку "Пляж;wifi" в список ["Пляж", "wifi"]
+                attributes=str(row['attributes']).split(';'), 
+                price=float(row['price']),
+                rating=float(row['rating']),
+                description=str(row['description'])
+            )
+            
+            # 3. Добавляем город в граф как узел с данными
+            G.add_node(ent.name, data=ent, type='city')
+            
+            # 4. Обработка страны: создаем узел, если его еще нет
+            country_name = str(row['country'])
+            if country_name not in G:
+                # Узел страны (технический узел для группировки)
+                country_ent = TourEntity(name=country_name, attributes=["Страна"])
+                G.add_node(country_name, data=country_ent, type='country')
+            
+            # 5. Создаем связь между городом и его страной
+            G.add_edge(ent.name, country_name)
+    
+    # --- 6. Добавление логических связей (Визовый режим) ---
+    # Группируем страны по визовым правилам для экспертной оценки
+    no_visa_countries = ["Турция", "ОАЭ", "Таиланд", "Япония", "Индонезия", "Корея", "Чехия"]
+    visa_required_countries = ["Италия", "Франция", "Испания", "Германия", "США", "Австрия", "Англия"]
+
+    for country in no_visa_countries:
+        if country in G:
+            G.add_edge(country, "Без визы")
+            
+    for country in visa_required_countries:
+        if country in G:
+            G.add_edge(country, "Нужна виза")
 
     return G
