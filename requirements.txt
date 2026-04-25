@@ -1,6 +1,7 @@
-pandas
 streamlit
-notebook
-opencv-python-headless
+pandas
 networkx
 matplotlib
+torch
+torchvision
+pillow

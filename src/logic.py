@@ -1,62 +1,114 @@
-import networkx as nx
+import csv
 import re
+import io
+import streamlit as st
+from models import Tour
 
-def process_text_message(prompt, G):
-    prompt_lower = prompt.lower()
-    found_tours = []
+def load_tours_from_csv(filepath):
+    content = ""
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+            content = f.read()
+    except Exception:
+        try:
+            with open(filepath, 'r', encoding='cp1251', errors='replace') as f:
+                content = f.read()
+        except Exception as e:
+            st.sidebar.error(f"🚨 Файл невозможно открыть: {e}")
+            return []
 
-    # 1. ПЫТАЕМСЯ ВЫДЕЛИТЬ ЦЕНУ ИЗ ЗАПРОСА (например, "до 1000")
-    max_price_limit = None
-    # Ищем все числа в строке
-    numbers = re.findall(r'\d+', prompt)
-    if numbers:
-        # Если нашли число и рядом есть слова-ограничители
-        if any(word in prompt_lower for word in ["до", "дешевле", "меньше", "бюджет"]):
-            max_price_limit = int(numbers[0])
+    if not content.strip():
+        return []
 
-    # 2. ПОИСК ТУРОВ В ГРАФЕ
-    for node, data in G.nodes(data=True):
-        if data.get('type') == 'tour':
-            tour = data.get('data')
-            if not tour:
-                continue
-            
-            # Проверка по словам (страна или море/горы)
-            match_country = tour.country.lower() in prompt_lower
-            match_attr = any(attr.lower() in prompt_lower for attr in tour.attributes)
-            
-            # ЕСЛИ НАШЛИ ПО СЛОВАМ, ПРОВЕРЯЕМ ЦЕНУ
-            if match_country or match_attr:
-                # Если пользователь указал лимит по цене, а тур дороже — пропускаем его
-                if max_price_limit and int(tour.price) > max_price_limit:
-                    continue
-                    
-                found_tours.append(tour)
+    first_line = content.split('\n')[0]
+    delimiter = ';' if ';' in first_line else ','
 
-    # 3. ФОРМИРОВАНИЕ ОТВЕТА
-    if not found_tours:
-        return (
-            "🔍 **К сожалению, я не нашла подходящих туров.**\n\n"
-            "Возможно, стоит немного увеличить бюджет или выбрать другое направление.\n"
-            "📞 **Свяжитесь с нами:** +7 (xxx) xxx-xx-xx, и мы найдем для вас горящее предложение! ✨"
-        )
+    tours = []
+    try:
+        reader = csv.DictReader(io.StringIO(content), delimiter=delimiter)
+        if reader.fieldnames:
+            reader.fieldnames = [str(col).strip().lower().replace('\ufeff', '') for col in reader.fieldnames]
 
-    count = len(found_tours)
-    response = f"🚀 **Ариана подобрала для вас {count} подходящих вариантов:**\n\n"
-    response += "---\n"
+        for row in reader:
+            try:
+                tours.append(Tour(
+                    name=row.get('name', 'Без названия'),
+                    country=row.get('country', 'Неизвестно'),
+                    price=row.get('price', 0),
+                    rating=row.get('rating', 0),
+                    description=row.get('description', ''),
+                    attributes=row.get('attributes', ''),
+                    duration=row.get('duration', ''),
+                    included=row.get('included', ''),
+                    image_url=row.get('image_url', ''),
+                    hotel_stars=row.get('hotel_stars', ''),
+                    season=row.get('season', ''),
+                    visa=row.get('visa', '')
+                ))
+            except Exception:
+                continue 
+                
+    except Exception as e:
+        return []
 
-    for i, tour in enumerate(found_tours, 1):
-        response += f"### {i}. {tour.name}, {tour.country}\n"
-        response += f"💰 **Цена:** {tour.price}$ | ⭐ **Рейтинг:** {tour.rating}\n\n"
-        response += f"_{tour.description}_\n\n"
+    return tours
+
+def get_recommendations(tours, query):
+    query = query.lower()
+    
+    # 1. Цена
+    numbers = re.findall(r'\d+', query)
+    has_budget = False
+    max_price = float('inf')
+    if numbers and int(max(numbers)) > 100:
+        max_price = float(max([int(n) for n in numbers]))
+        has_budget = True
+
+    # 2. Виза
+    visa_filter = None
+    if "без виз" in query or "виза не нужна" in query: visa_filter = "нет"
+    elif "с визой" in query or "нужна виза" in query: visa_filter = "да"
+
+    # 3. Сезон
+    season_filter = None
+    if "лет" in query: season_filter = "лето"
+    elif "зим" in query: season_filter = "зима"
+    elif "весн" in query: season_filter = "весна"
+    elif "осен" in query: season_filter = "осень"
+
+    # Проверяем, ввел ли пользователь хоть один фильтр
+    has_any_filter = has_budget or bool(visa_filter) or bool(season_filter)
+    
+    # Разбиваем запрос на слова, чтобы "бебеб" не цеплялся за случайные буквы
+    query_words = set(re.findall(r'[а-яa-z]+', query))
+
+    results = []
+    for t in tours:
+        if t.price > max_price: continue
+        if visa_filter and visa_filter != t.visa.lower(): continue
+        if season_filter and season_filter not in t.season.lower(): continue
+
+        score = t.rating * 10 
+        matched_text = False
         
-        if tour.image_url and "http" in tour.image_url:
-            response += f"![Tour Image]({tour.image_url})\n\n"
+        # Проверка страны
+        if t.country.lower() in query and len(t.country) > 2:
+            score += 40
+            matched_text = True
         
-        response += "---\n"
+        # Проверка тегов
+        attr_words = set(re.findall(r'[а-яa-z]+', t.attributes.lower()))
+        if query_words.intersection(attr_words):
+            score += 20
+            matched_text = True
+        
+        # ⛔ ЗАЩИТА ОТ МУСОРА:
+        # Если в запросе нет ни цены, ни сезона, ни визы, и слова не совпали ни с одной страной или тегом - пропускаем!
+        if not has_any_filter and not matched_text:
+            continue
+            
+        match_perc = min(99, int(score + 10))
+        results.append({"tour": t, "score": match_perc})
 
-    response += "\n✨ **Заинтересовал какой-то из этих вариантов?**\n"
-    response += "Если у вас возникли вопросы, просто свяжитесь с нами. Мы поможем всё оформить! \n\n"
-    response += "📞 **Наш телефон:** +7 (xxx) xxx-xx-xx"
-
-    return response
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results[:5]
