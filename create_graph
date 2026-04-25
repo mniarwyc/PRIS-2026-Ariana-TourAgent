@@ -1,0 +1,65 @@
+import os
+import pandas as pd
+import networkx as nx
+import io
+
+class TourEntity:
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+def create_tour_graph(file_path):
+    G = nx.Graph()
+    
+    if not os.path.exists(file_path):
+        print(f"File not found: {file_path}")
+        return G
+
+    try:
+        # Читаем файл в бинарном режиме, чтобы кодировка вообще не мешала на этапе открытия
+        with open(file_path, 'rb') as f:
+            bytes_content = f.read()
+        
+        # Декодируем, заменяя всё непонятное на пробелы
+        clean_content = bytes_content.decode('utf-8', errors='replace').replace('\ufffd', ' ')
+        
+        # Читаем в pandas
+        df = pd.read_csv(io.StringIO(clean_content))
+        print(f"Successfully loaded {len(df)} rows")
+        
+    except Exception as e:
+        print(f"Failed to load CSV: {e}")
+        return G
+
+    df.columns = df.columns.str.strip()
+
+    for index, row in df.iterrows():
+        # Используем dict, чтобы не прописывать каждое поле вручную
+        data_dict = row.to_dict()
+        tour_name = str(data_dict.get('name', f'Tour_{index}'))
+        
+        # Создаем узел
+        G.add_node(tour_name, **data_dict)
+        
+        # Связываем со страной
+        country = data_dict.get('country')
+        if country:
+            G.add_edge(tour_name, str(country))
+
+    return G
+
+if __name__ == "__main__":
+    # ВАЖНО: Проверьте, что в терминале вы находитесь в папке проекта!
+    CSV_NAME = 'tours.csv'
+    
+    print("Starting graph creation...")
+    my_graph = create_tour_graph(CSV_NAME)
+    
+    print("-" * 30)
+    print(f"Nodes: {my_graph.number_of_nodes()}")
+    print(f"Edges: {my_graph.number_of_edges()}")
+    
+    if my_graph.number_of_nodes() > 0:
+        # Печатаем только названия (строки), чтобы не перегружать консоль
+        sample = list(my_graph.nodes)[:5]
+        print(f"Sample nodes: {sample}")

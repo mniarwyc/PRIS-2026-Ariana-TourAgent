@@ -1,77 +1,94 @@
 import streamlit as st
-import pandas as pd
-import os
-from logic import process_text_message
-from knowledge_graph import create_graph
-import matplotlib.pyplot as plt
 import networkx as nx
+from pyvis.network import Network
+import streamlit.components.v1 as components
+import os
 
-st.set_page_config(layout="wide", page_title="TourAgent Data Intelligence", page_icon="📈")
+# Импортируем твои обновленные модули
+from knowledge_graph import create_graph
+from logic import process_text_message
 
-if "graph" not in st.session_state:
-    st.session_state.graph = create_graph()
+st.set_page_config(page_title="Ariana TourAgent", layout="wide")
+
+## 🌍 Интеллектуальный поиск туров Ariana
+
+# 1. Загрузка данных с защитой от ошибок
+@st.cache_resource
+def get_data():
+    try:
+        return create_graph()
+    except Exception as e:
+        st.error(f" Ошибка при создании графа: {e}")
+        return nx.Graph() # Возвращаем пустой граф, чтобы приложение не упало
+
+graph = get_data()
+
+# Сайдбар с инфо
+with st.sidebar:
+    st.header("📊 Статистика базы")
+    if graph.number_of_nodes() > 0:
+        st.success(f"✅ Узлов в графе: {graph.number_of_nodes()}")
+    else:
+        st.warning("⚠️ Граф пуст. Проверьте tours.csv")
+    st.info("Поиск работает на основе связей между странами и атрибутами туров.")
+
+# 2. ВИЗУАЛИЗАЦИЯ ГРАФА
+st.subheader("🗺️ Интерактивная карта туров")
+
+def visualize_graph(G):
+    # Берем топ-70 узлов для плавности работы
+    nodes_to_show = list(G.nodes())[:70]
+    subG = G.subgraph(nodes_to_show)
+    
+    net = Network(height="450px", width="100%", bgcolor="#1a1a1a", font_color="white")
+    net.toggle_physics(False) # Чтобы не лагало
+    
+    for node, data in subG.nodes(data=True):
+        # Проверяем, есть ли данные тура в узле
+        tour = data.get('data')
+        if tour:
+            label = f"{tour.name}\n({tour.price}$)"
+            net.add_node(node, label=label, title=f"Страна: {tour.country}", color="#00ffcc", size=20)
+        else:
+            # Если это узел страны или атрибута
+            net.add_node(node, label=node, color="#ffcc00", size=15)
+    
+    for edge in subG.edges():
+        net.add_edge(edge[0], edge[1], color="#444444")
+
+    # Сохранение и вывод
+    path = "graph_temp.html"
+    net.save_graph(path)
+    with open(path, 'r', encoding='utf-8') as f:
+        html = f.read()
+    components.html(html, height=470)
+
+# Рисуем облегченный граф
+if graph.number_of_nodes() > 0:
+    visualize_graph(graph)
+else:
+    st.info("Визуализация недоступна: граф не содержит данных.")
+
+st.write("---")
+
+# 3. ПОИСКОВЫЙ ИНТЕРФЕЙС
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-G = st.session_state.graph
+# История чата
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.title("📊 Система управления")
-    st.write(f"Узлов в графе: {len(G.nodes())}")
-    if st.button("🗑 Очистить чат"):
-        st.session_state.messages = []
-        st.rerun()
-
-# --- ОСНОВНАЯ ЧАСТЬ (Вкладки) ---
-tab_chat, tab_stats = st.tabs(["💬 Интеллектуальный чат", "📈 Аналитика датасета"])
-
-with tab_chat:
-    col1, col2 = st.columns([1, 1])
+# Строка поиска
+if prompt := st.chat_input("Куда отправимся? Напишите страну, город или тип отдыха"):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
     
-    with col1:
-        for msg in st.session_state.messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-        
-        user_input = st.chat_input("Спросите: 'Топ отелей до 1000$'")
-        if user_input:
-            st.session_state.messages.append({"role": "user", "content": user_input})
-            with st.chat_message("user"): st.markdown(user_input)
-            response = process_text_message(user_input, G)
+    # Вызов логики
+    with st.chat_message("assistant"):
+        with st.spinner("Ищу лучшие предложения..."):
+            response = process_text_message(prompt, graph)
+            st.markdown(response)
             st.session_state.messages.append({"role": "assistant", "content": response})
-            with st.chat_message("assistant"): st.markdown(response)
-
-    with col2:
-        st.subheader("🌐 Граф связей")
-        fig, ax = plt.subplots(figsize=(6, 5))
-        sub_nodes = list(G.nodes())[:25]
-        sub_G = G.subgraph(sub_nodes)
-        pos = nx.spring_layout(sub_G, seed=42)
-        nx.draw(sub_G, pos, with_labels=True, node_color='orange', node_size=800, font_size=7, ax=ax)
-        st.pyplot(fig)
-
-with tab_stats:
-    st.subheader("🔍 Глубокий анализ данных (Pandas Analytics)")
-    csv_path = os.path.join("data", "tours.csv")
-    
-    if os.path.exists(csv_path):
-        df = pd.read_csv(csv_path)
-        
-        col_st1, col_st2 = st.columns(2)
-        
-        with col_st1:
-            st.write("**💰 Распределение цен в датасете**")
-            fig2, ax2 = plt.subplots()
-            df['price'].hist(bins=10, color='skyblue', ax=ax2)
-            ax2.set_xlabel("Цена ($)")
-            ax2.set_ylabel("Количество туров")
-            st.pyplot(fig2)
-            
-        with col_st2:
-            st.write("**⭐ Топ-5 направлений по рейтингу**")
-            top_df = df.nlargest(5, 'rating')[['name', 'rating', 'price']]
-            st.table(top_df)
-            
-        st.write("**📂 Сырые данные (Dataset View):**")
-        st.dataframe(df, use_container_width=True)
